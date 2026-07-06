@@ -3,7 +3,7 @@ import pybind11
 
 gpu_capture_module = Extension(
     "gpu_capture",
-    sources=["main.cpp"],
+    sources=["main_cpu.cpp"],
     include_dirs=[pybind11.get_include()],
     libraries=["d3d11", "dxgi", "d2d1", "user32", "ole32", "d3dcompiler"],
     extra_compile_args=["/O2", "/std:c++17"],
