@@ -68,13 +68,13 @@ void CSMain(uint3 id : SV_DispatchThreadID) {
     uint pixelIdx  = id.y * Width + id.x;
 
     if (UseRGBA == 1) {
-        OutputBuffer[pixelIdx]                 = pixel.b;
-        OutputBuffer[planeSize + pixelIdx]     = pixel.g;
-        OutputBuffer[2 * planeSize + pixelIdx] = pixel.r;
-    } else {
         OutputBuffer[pixelIdx]                 = pixel.r;
         OutputBuffer[planeSize + pixelIdx]     = pixel.g;
         OutputBuffer[2 * planeSize + pixelIdx] = pixel.b;
+    } else {
+        OutputBuffer[pixelIdx]                 = pixel.b;
+        OutputBuffer[planeSize + pixelIdx]     = pixel.g;
+        OutputBuffer[2 * planeSize + pixelIdx] = pixel.r;
     }
 }
 )hlsl";
