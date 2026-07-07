@@ -31,7 +31,6 @@ ID3D11ShaderResourceView*  pInputSRV              = nullptr;
 ID3D11UnorderedAccessView* pOutputUAV             = nullptr;
 
 cudaGraphicsResource*      g_cudaResource         = nullptr;
-torch::Tensor              g_cudaResult;
 
 UINT cropLeft   = 0, cropTop = 0;
 UINT cropWidth  = 640;
@@ -69,13 +68,13 @@ void CSMain(uint3 id : SV_DispatchThreadID) {
     uint pixelIdx  = id.y * Width + id.x;
 
     if (UseRGBA == 1) {
-        OutputBuffer[pixelIdx]                 = pixel.r;
-        OutputBuffer[planeSize + pixelIdx]     = pixel.g;
-        OutputBuffer[2 * planeSize + pixelIdx] = pixel.b;
-    } else {
         OutputBuffer[pixelIdx]                 = pixel.b;
         OutputBuffer[planeSize + pixelIdx]     = pixel.g;
         OutputBuffer[2 * planeSize + pixelIdx] = pixel.r;
+    } else {
+        OutputBuffer[pixelIdx]                 = pixel.r;
+        OutputBuffer[planeSize + pixelIdx]     = pixel.g;
+        OutputBuffer[2 * planeSize + pixelIdx] = pixel.b;
     }
 }
 )hlsl";
@@ -86,8 +85,6 @@ void cleanup()
         cudaGraphicsUnregisterResource(g_cudaResource);
         g_cudaResource = nullptr;
     }
-    g_cudaResult = torch::Tensor(); // reset tensor
-
     if (pOutputUAV)            { pOutputUAV->Release();            pOutputUAV = nullptr; }
     if (pInputSRV)             { pInputSRV->Release();             pInputSRV = nullptr; }
     if (pGpuFloatOutputBuffer) { pGpuFloatOutputBuffer->Release(); pGpuFloatOutputBuffer = nullptr; }
@@ -210,7 +207,6 @@ bool initialize_capture(UINT width, UINT height, bool use_rgba, bool use_zoom)
     pDeviceContext->CSSetUnorderedAccessViews(0, 1, &pOutputUAV, nullptr);
     pDeviceContext->CSSetConstantBuffers(0, 1, &pParamBuffer);
 
-    // registra buffer D3D11 con CUDA
     cudaError_t err = cudaGraphicsD3D11RegisterResource(
         &g_cudaResource,
         pGpuFloatOutputBuffer,
@@ -218,12 +214,6 @@ bool initialize_capture(UINT width, UINT height, bool use_rgba, bool use_zoom)
     );
     if (err != cudaSuccess)
         return false;
-
-    // pre-alloca tensor CUDA una volta sola — zero alloc per frame
-    g_cudaResult = torch::zeros(
-        { 1, 3, (long long)cropHeight, (long long)cropWidth },
-        torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA)
-    );
 
     return true;
 }
@@ -274,17 +264,21 @@ py::object get_frame_image()
     cudaGraphicsResourceGetMappedPointer(
         (void**)&d_ptr, &mappedSize, g_cudaResource);
 
-    // copia VRAM->VRAM nel tensor pre-allocato — zero alloc
-    cudaMemcpy(
-        g_cudaResult.data_ptr(),
+    auto options = torch::TensorOptions()
+        .dtype(torch::kFloat32)
+        .device(torch::kCUDA);
+
+    torch::Tensor tensor = torch::from_blob(
         d_ptr,
-        cropWidth * cropHeight * 3 * sizeof(float),
-        cudaMemcpyDeviceToDevice
+        { 1, 3, (long long)cropHeight, (long long)cropWidth },
+        options
     );
+
+    torch::Tensor result = tensor.clone();
 
     cudaGraphicsUnmapResources(1, &g_cudaResource, 0);
 
-    return py::cast(g_cudaResult);
+    return py::cast(result);
 }
 
 PYBIND11_MODULE(gpu_capture, m) {
